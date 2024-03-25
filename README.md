@@ -1,6 +1,7 @@
-**This GitHub repo (<https://github.com/Genymobile/scrcpy>) is the only official
-source for the project. Do not download releases from random websites, even if
-their name contains `scrcpy`.**
+**This GitHub repo (<https://github.com/relet/scrcpy>) is NOT the official
+source for the project.**
+
+This is modified to do realtime calculations on your android screen content.
 
 # scrcpy (v2.4)
 
