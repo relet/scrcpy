@@ -57,4 +57,10 @@ enum sc_display_result
 sc_display_render(struct sc_display *display, const SDL_Rect *geometry,
                   enum sc_orientation orientation);
 
+uint8_t toGray(uint32_t pixel);
+uint64_t calculatePHash(const uint32_t* pixels);
+
+enum sc_display_result
+sc_analyze(SDL_Renderer *renderer, const SDL_Rect *geometry);
+
 #endif

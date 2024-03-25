@@ -103,7 +103,10 @@ endif
 
 cc = meson.get_compiler('c')
 
+math_dep = cc.find_library('m')
+
 dependencies = [
+    math_dep,
     dependency('libavformat', version: '>= 57.33'),
     dependency('libavcodec', version: '>= 57.37'),
     dependency('libavutil'),

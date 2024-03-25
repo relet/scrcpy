@@ -3,6 +3,7 @@
 #include <assert.h>
 
 #include "util/log.h"
+#include <math.h>
 
 bool
 sc_display_init(struct sc_display *display, SDL_Window *window, bool mipmaps) {
@@ -233,6 +234,96 @@ sc_display_update_texture(struct sc_display *display, const AVFrame *frame) {
     return SC_DISPLAY_RESULT_OK;
 }
 
+Uint32 *pixels = NULL;
+#define HASH_SIZE 32
+
+uint8_t toGray(uint32_t pixel) {
+    uint8_t r = (pixel >> 16) & 0xFF;
+    uint8_t g = (pixel >> 8) & 0xFF;
+    uint8_t b = pixel & 0xFF;
+    return (uint8_t)((r * 0.299) + (g * 0.587) + (b * 0.114));
+}
+
+
+uint64_t calculatePHash(const uint32_t* pixels) {
+    // Calculate DCT
+    double dct[HASH_SIZE][HASH_SIZE];
+    for (int y = 0; y < HASH_SIZE; y++) {
+        for (int x = 0; x < HASH_SIZE; x++) {
+            double sum = 0;
+            for (int j = 0; j < HASH_SIZE; j++) {
+                for (int i = 0; i < HASH_SIZE; i++) {
+                    double cosx = (i == 0) ? M_SQRT1_2 : 1;
+                    double cosy = (j == 0) ? M_SQRT1_2 : 1;
+                    sum += cosx * cosy * toGray(pixels[j * HASH_SIZE + i]) *
+                           cos(M_PI * i * (2 * x + 1) / (2 * HASH_SIZE)) *
+                           cos(M_PI * j * (2 * y + 1) / (2 * HASH_SIZE));
+                }
+            }
+            dct[y][x] = sum / 4;
+        }
+    }
+
+    // Calculate average DCT value
+    double average = 0;
+    for (int y = 0; y < HASH_SIZE; y++) {
+        for (int x = 0; x < HASH_SIZE; x++) {
+            average += dct[y][x];
+        }
+    }
+    average /= HASH_SIZE * HASH_SIZE;
+
+    // Generate hash code
+    uint64_t hash = 0;
+    for (int y = 0; y < HASH_SIZE; y++) {
+        for (int x = 0; x < HASH_SIZE; x++) {
+            hash <<= 1;
+            hash |= (dct[y][x] >= average) ? 1 : 0;
+        }
+    }
+    return hash;
+}
+
+uint64_t last_hash = 0;
+
+enum sc_display_result
+sc_analyze(SDL_Renderer *renderer, const SDL_Rect *geometry) {
+    int width = geometry->w;
+    int height = geometry->h;
+    // get pixel data
+    if (pixels == NULL) {
+       pixels = (Uint32 *)malloc(width * height * sizeof(Uint32));
+    }
+    if (!pixels) {
+        LOGE("Could not allocate memory for pixels");
+        return SC_DISPLAY_RESULT_ERROR;
+    }
+    SDL_Rect rect = {0, 0, width, height}; 
+    // resize the image to HASH_SIZE x HASH_SIZE using SDL
+    SDL_Surface *resized = SDL_CreateRGBSurface(0, HASH_SIZE, HASH_SIZE, 32, 0xFF0000, 0x00FF00, 0x0000FF, 0xFF000000);
+    SDL_Surface *renderer_surface = SDL_CreateRGBSurface(0, width, height, 32, 0xFF0000, 0x00FF00, 0x0000FF, 0xFF000000);
+    SDL_RenderReadPixels(renderer, &rect, SDL_PIXELFORMAT_ARGB8888, renderer_surface->pixels, renderer_surface->pitch);
+    SDL_BlitScaled(renderer_surface, NULL, resized, NULL);
+    // get pixel data from the resized image
+    SDL_LockSurface(resized);
+    for (int y = 0; y < HASH_SIZE; y++) {
+        for (int x = 0; x < HASH_SIZE; x++) {
+            pixels[y * HASH_SIZE + x] = ((Uint32 *)resized->pixels)[y * HASH_SIZE + x];
+        }
+    }
+    uint64_t hash = calculatePHash(pixels);
+
+    if (hash == last_hash) {
+        return SC_DISPLAY_RESULT_OK;
+    }
+    
+    //print HASH as hex to stdout and flush
+    printf("%016" PRIX64 "\n", hash);
+    fflush(stdout);
+    //free(pixels);
+    return SC_DISPLAY_RESULT_OK;
+}
+
 enum sc_display_result
 sc_display_render(struct sc_display *display, const SDL_Rect *geometry,
                   enum sc_orientation orientation) {
@@ -282,5 +373,7 @@ sc_display_render(struct sc_display *display, const SDL_Rect *geometry,
     }
 
     SDL_RenderPresent(display->renderer);
+    // analyze screen content using hash function
+    sc_analyze(display->renderer, geometry);
     return SC_DISPLAY_RESULT_OK;
 }
